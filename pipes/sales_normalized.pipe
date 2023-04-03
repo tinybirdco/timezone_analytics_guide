@@ -1,0 +1,26 @@
+DESCRIPTION >
+	Example of normalizing data by converting UTC timestamps into their source timezone then storing that as server-local.
+This allows you to do inter-store comparisons for a given time-of-day, but be wary of further Timezone manipulation from this point.
+
+
+NODE sales_normalized_0
+SQL >
+
+    SELECT store, sale_amount,
+      CASE 
+        WHEN store = 'New York' THEN toDateTime(toString(toTimezone(timestamp_utc, 'America/New_York')))
+        WHEN store = 'Tokyo' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Asia/Tokyo')))
+        WHEN store = 'London' THEN toDateTime(toString(toTimezone(timestamp_utc,'Europe/London')))
+        WHEN store = 'Madrid' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Europe/Madrid')))
+        WHEN store = 'Auckland' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Pacific/Auckland')))
+        WHEN store = 'Chatham' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Pacific/Chatham')))
+        else toDateTime('1970-01-01 00:00:00')
+      END AS timestamp_normalized
+    FROM sales_data_raw
+
+TYPE materialized
+DATASOURCE sales_normalized_mv
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(timestamp_normalized)"
+ENGINE_SORTING_KEY "timestamp_normalized, store, sale_amount"
+

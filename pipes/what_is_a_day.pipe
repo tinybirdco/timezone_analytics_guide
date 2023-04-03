@@ -1,0 +1,120 @@
+DESCRIPTION >
+	Doing a daily aggregation sounds easy right?
+Well, time to put on your big-person pants and make some decisions.
+
+
+TOKEN "what_is_a_day_endpoint_read_6381" READ
+
+NODE what_is_a_day_0
+DESCRIPTION >
+    So what you could do here is specifically parse each timestamp with the timezone, but you can't do a lookup because Clickhouse doesn't like it.
+    So you end up chaining DateTime conversion functions, which is really really easy to get wrong.
+
+SQL >
+
+    SELECT
+        store,
+        toDate(toTimezone(timestamp_utc, 'Pacific/Chatham')) AS cal_day,
+        toFloat32(sum(sale_amount)) AS sale_amount
+    FROM sales_data_raw
+    where store = 'Chatham'
+    GROUP BY
+        store,
+        cal_day
+    order by cal_day asc
+
+
+
+NODE what_is_a_day_1
+DESCRIPTION >
+    Or you could just strip the date from the local timestamp string and aggregate by that per store to get all the sales for the local calendar day.
+    Be warned that during DST your 'day' may be somewhere between 23 and 25hrs long.
+
+SQL >
+
+    SELECT
+        store,
+        toDate(substring(timestamp_local, 1, 10)) AS cal_day,
+        toFloat32(sum(sale_amount)) AS sale_amount
+    FROM sales_data_raw
+    where store = 'Chatham'
+    GROUP BY store, cal_day
+    ORDER BY cal_day ASC
+
+
+
+NODE what_is_a_day_2
+DESCRIPTION >
+    Note that the amount for this particular calendar day is consistent between these methods, including using an MV.
+
+SQL >
+
+    %
+    {% set day = '2023-03-25' %}
+    select store, cal_day, toFloat32(sale_amount) as sale_amount, 'node0' as source from what_is_a_day_0
+    where cal_day = toDate({{String(day)}})
+    union all
+    select store, cal_day, toFloat32(sale_amount) as sale_amount, 'node1' as source from what_is_a_day_1
+    where cal_day = toDate({{String(day)}})
+    union all
+    select store, sales_1d_local_mv.period_local, toFloat32(sale_amount) as sale_amount, 'mv' as source from sales_1d_local_mv
+    where store = 'Chatham' and period_local = toDate({{String(day)}})
+
+
+
+NODE what_is_a_day_3
+DESCRIPTION >
+    Running the MV version of the query separately, note how unreasonably efficient it is.
+
+SQL >
+
+    select store, period_local, sale_amount from sales_1d_local_mv
+    where store = 'Chatham' and period_local = toDate('2023-03-25')
+
+
+
+NODE what_is_a_day_4
+DESCRIPTION >
+    Now look what happens when we move to the DST change day for the Timezone.
+
+SQL >
+
+    %
+    {% set day = '2023-04-1' %}
+    select store, cal_day, toFloat32(sale_amount) as sale_amount, 'node0' as source from what_is_a_day_0
+    where cal_day = toDate({{String(day)}})
+    union all
+    select store, cal_day, toFloat32(sale_amount) as sale_amount, 'node1' as source from what_is_a_day_1
+    where cal_day = toDate({{String(day)}})
+    union all
+    select store, period_local, toFloat32(sale_amount) as sale_amount, 'mv' as source from sales_1d_local_mv
+    where store = 'Chatham' and period_local = toDate({{String(day)}})
+
+
+
+NODE what_is_a_day_5
+SQL >
+
+    SELECT
+        store,
+        toDate(substring(timestamp_local, 1, 10)) AS cal_day,
+        count(sale_amount) AS sale_count,
+        'naive date' as date_method
+    FROM sales_data_raw
+    where store = 'Chatham' and cal_day >= toDate('2023-04-01')  and cal_day <= toDate('2023-04-3')
+    GROUP BY store, cal_day
+    order by cal_day asc
+    union all
+    SELECT
+        store,
+        toDate(parseDateTimeBestEffort(timestamp_local, 'Pacific/Chatham')) AS cal_day,
+        count(sale_amount) AS sale_count,
+        'tz date' as date_method
+    FROM sales_data_raw
+    where store = 'Chatham' and cal_day >= toDate('2023-04-01')  and cal_day <= toDate('2023-04-3')
+    GROUP BY
+        store,
+        cal_day
+    order by cal_day asc
+
+

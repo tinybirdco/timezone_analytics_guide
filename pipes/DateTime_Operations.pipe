@@ -1,0 +1,220 @@
+DESCRIPTION >
+	This Pipe gives simple examples of how using DateTime and Timezone functions in Clickhouse may not behave as you expect.
+
+
+NODE Things_that_work_as_expected
+DESCRIPTION >
+    Here are a collection of DateTime and Timezone manipulation functions that work more or less as you'd expect.
+
+SQL >
+
+    SELECT 
+    -- these are simple
+       timezone,
+       store_open_time_utc,
+       store_open_time_local, 
+    -- This next one will be converted to the Clickhouse server's default timezone
+       parseDateTimeBestEffort(store_open_time_local) as parse_naive, 
+    -- This will be in the specified Timezone, but it must be a Constant - you can't look it up!
+       parseDateTimeBestEffort(store_open_time_local, 'Asia/Tokyo') as parse_tz, 
+       parseDateTimeBestEffort(substring(store_open_time_local, 1, 19)) as parse_notz, 
+    -- These next ones work, but you must get the offsets right for each DST change!
+       store_open_time_utc + store_open_timezone_offset as w_plus,
+       date_add(SECOND, store_open_timezone_offset, store_open_time_utc) as w_date_add,
+       addSeconds(store_open_time_utc, store_open_timezone_offset) as w_add_seconds,
+    --- This gives you nice UTC formatting as you'd expect
+       formatDateTime(store_open_time_utc, '%FT%TZ'),
+    -- Because BestEffort will convert your string to UTC, you're going to get UTC displayed again here
+       formatDateTime(parseDateTimeBestEffort(store_open_time_local), '%FT%T')
+    --    formatDateTime(store_open_time_utc, '%FT%T%z')  << Supported in Clickhouse 22.9
+    FROM store_hours_raw
+    where store = 'Tokyo'
+    Limit 1
+
+
+
+NODE Things_that_dont_work_as_expected
+DESCRIPTION >
+    Pay attention to what these calls are doing - or they will trip you up. Mostly they are best avoided.
+
+SQL >
+
+    -- Here we have a column with a time in UTC, and another column with the local timezone
+    -- Clickhouse has a (frankly annoying) opinion that a DateTime column must always be one specific Timezone
+    -- Therefore, you must always supply the Timezone as a Constant, and cannot lookup from another column on a per-row basis
+    -- It will even silently give you the wrong answer as punishment in some cases if you try it!
+    -- https://github.com/ClickHouse/ClickHouse/issues/33382
+    SELECT 
+    -- toString(store_open_time_utc, timezone) as w_tostr_lookup,   << This causes an error
+       toString(store_open_time_utc, 'Asia/Tokyo') as w_tostr_const, 
+       toTimezone(store_open_time_utc, timezone) as w_totz_lookup,  -- This siliently gives the wrong answer!
+       toTimezone(store_open_time_utc, 'Asia/Tokyo') as w_totz_const,
+    -- Because BestEffort will convert your string to UTC, you might think you'll get the local time
+    -- But as the Clickhouse column is UTC, that is what you're going to get
+       formatDateTime(parseDateTimeBestEffort(store_open_time_local), '%FT%T')
+    -- formatDateTime(store_open_time_utc, '%FT%T%z')  << Supported in Clickhouse 22.9
+    FROM store_hours_raw
+    where store = 'Tokyo'
+    Limit 1
+
+
+
+NODE Create_a_result_column_in_the_target_timezone
+DESCRIPTION >
+    By using a Parameter here the store_timezone is a Constant, so the lookup works as expected. Note that the column is the correct Timezone.
+
+SQL >
+
+    %
+    {% set store_timezone = 'Asia/Tokyo' %}
+    SELECT 
+       parseDateTimeBestEffort(store_open_time_local, {{String(store_timezone)}})
+    FROM store_hours_raw
+    where timezone = {{String(store_timezone)}}
+
+
+
+NODE DateTime_Operations_3
+DESCRIPTION >
+    You might think you can mix timezones in a column by being clever, but no you can't. First Tz wins.
+
+SQL >
+
+    select store, sale_amount, timestamp_local, timestamp_utc, toTimezone(timestamp_utc, 'America/New_York') as totz
+    from sales_data_raw
+    where store = 'New York'
+    order by timestamp_utc asc
+    limit 1
+    union all
+    select store, sale_amount, timestamp_local, timestamp_utc, toTimezone(timestamp_utc, 'Pacific/Chatham') as totz
+    from sales_data_raw
+    where store = 'Chatham'
+    order by timestamp_utc asc
+    limit 1
+
+
+
+NODE DateTime_Operations_4
+DESCRIPTION >
+    If however we convert the DateTime to a string without the tzinfo, Clickhouse defaults to the server timezone for the column, and our trick works
+
+SQL >
+
+    select store, sale_amount, timestamp_local, timestamp_utc, toDateTime(toString(toTimezone(timestamp_utc, 'Pacific/Chatham'))) as totz
+    from sales_data_raw
+    where store = 'Chatham'
+    order by timestamp_utc asc
+    limit 1
+    union all
+    select store, sale_amount, timestamp_local, timestamp_utc, toDateTime(toString(toTimezone(timestamp_utc, 'America/New_York'))) as totz
+    from sales_data_raw
+    where store = 'New York'
+    order by timestamp_utc asc
+    limit 1
+
+
+
+NODE DateTime_Operations_5
+DESCRIPTION >
+    This is much more efficient, even if it doesn't look it.
+
+SQL >
+
+    SELECT store, sale_amount, timestamp_local, timestamp_utc, 
+      CASE 
+        WHEN store = 'New York' THEN toDateTime(toString(toTimezone(timestamp_utc, 'America/New_York')))
+        WHEN store = 'Tokyo' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Asia/Tokyo')))
+        WHEN store = 'London' THEN toDateTime(toString(toTimezone(timestamp_utc,'Europe/London')))
+        WHEN store = 'Madrid' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Europe/Madrid')))
+        WHEN store = 'Auckland' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Pacific/Auckland')))
+        WHEN store = 'Chatham' THEN toDateTime(toString(toTimezone(timestamp_utc, 'Pacific/Chatham')))
+      END AS timestamp_local_converted
+    FROM sales_data_raw
+
+
+
+
+NODE DateTime_Operations_6
+DESCRIPTION >
+    Check if there's any mismatches
+
+SQL >
+
+    SELECT * 
+    FROM DateTime_Operations_5
+    where toDateTime(substring(timestamp_local,1, 19)) != timestamp_local_converted
+
+
+
+NODE DateTime_Operations_7
+DESCRIPTION >
+    No matter how you try to work around Clickhouse setting the timezone at the column level, you aren't going to like the result.
+    Unless you use a string conversion
+
+SQL >
+
+    SELECT 
+      store, sale_amount, timestamp_utc, timestamp_local, toTimezone(
+        timestamp_utc, 
+        CASE 
+          WHEN store = 'Tokyo' THEN 'Asia/Tokyo'
+          WHEN store = 'Auckland' THEN 'Pacific/Auckland'
+          else 'UTC'
+        END
+      ) AS timestamp_local_converted
+    FROM sales_data_raw
+    WHERE store IN ('Tokyo', 'Auckland') and store = 'Tokyo'
+
+
+
+NODE DateTime_Operations_8
+DESCRIPTION >
+    Note that even trying to be clever Clickhouse is still going to assign a Timezone to the column and represent all timestamps as that Timezone.
+
+SQL >
+
+    %
+    with sales_by_store as (
+      select store, sale_amount, timestamp_utc
+      from sales_data_raw
+      where store = {{String(store, 'Chatham', description="The Store to get local timezone sales data from", required=True)}}
+    )
+    select 
+      store,
+      CASE 
+        WHEN store = 'New York' THEN toStartOfFifteenMinutes(toTimezone(timestamp_utc, 'America/New_York'))
+        WHEN store = 'Tokyo' THEN toStartOfFifteenMinutes(toTimezone(timestamp_utc, 'Asia/Tokyo'))
+        WHEN store = 'London' THEN toStartOfFifteenMinutes(toTimezone(timestamp_utc,'Europe/London'))
+        WHEN store = 'Madrid' THEN toStartOfFifteenMinutes(toTimezone(timestamp_utc, 'Europe/Madrid'))
+        WHEN store = 'Auckland' THEN toStartOfFifteenMinutes(toTimezone(timestamp_utc, 'Pacific/Auckland'))
+        WHEN store = 'Chatham' THEN toStartOfFifteenMinutes(toTimezone(timestamp_utc, 'Pacific/Chatham'))
+        else toDateTime('1970-01-01 00:00:00')
+      END AS period_local,
+      sumSimpleState(sale_amount) AS sale_amount,
+      countState() AS sale_count
+    from sales_by_store
+    GROUP BY
+        store,
+        period_local
+    ORDER BY period_local ASC
+
+
+
+NODE DateTime_Operations_9
+DESCRIPTION >
+    What you can do is filter to the store(s) you want, and then return it in a particular timezone.
+    Which is good enough for most simple usecases.
+
+SQL >
+
+    %
+    select 
+      store,
+      sale_amount,
+      timestamp_local,
+      toTimezone(timestamp_utc, {{String(as_tz, 'Pacific/Chatham', description="Timezone to return data as", required=True)}}) as timestamp_as_tz
+    from sales_data_raw
+    where 
+      store = {{String(store, 'Chatham', description="Store to filter to", required=True)}}
+
+

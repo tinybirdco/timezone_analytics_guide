@@ -1,0 +1,25 @@
+DESCRIPTION >
+	Sales per hour per store normalized to a common timezone for inter-store comparisons.
+Note that there are ~2 days per year per store that are slightly off due to DST changes - a tradeoff for simplicity.
+
+
+NODE sales_1h_normalized_0
+SQL >
+
+    SELECT
+        store,
+        toStartOfHour(timestamp_normalized) AS period_norm,
+        sumSimpleState(sale_amount) AS sale_amount,
+        countState() AS sale_count
+    FROM sales_normalized_mv
+    GROUP BY
+        store,
+        period_norm
+    ORDER BY period_norm ASC
+
+TYPE materialized
+DATASOURCE sales_1h_normalized_mv
+ENGINE "AggregatingMergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(period_norm)"
+ENGINE_SORTING_KEY "store, period_norm"
+

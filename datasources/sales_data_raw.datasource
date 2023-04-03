@@ -1,0 +1,10 @@
+
+SCHEMA >
+    `sale_amount` Int32 `json:$.sale_amount`,
+    `store` String `json:$.store`,
+    `timestamp_local` String `json:$.timestamp_local`,
+    `timestamp_utc` DateTime `json:$.timestamp_utc`
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYear(timestamp_utc)"
+ENGINE_SORTING_KEY "timestamp_utc, sale_amount, store, timestamp_local"

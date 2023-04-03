@@ -1,0 +1,10 @@
+# Data Source created from Pipe 'sales_normalized'
+
+SCHEMA >
+    `store` String,
+    `sale_amount` Int32,
+    `timestamp_normalized` DateTime
+
+ENGINE "MergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(timestamp_normalized)"
+ENGINE_SORTING_KEY "timestamp_normalized, store, sale_amount"

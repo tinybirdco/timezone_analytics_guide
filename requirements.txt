@@ -1,3 +1,2 @@
-pytz
 pandas
 matplotlib

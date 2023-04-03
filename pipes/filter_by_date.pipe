@@ -1,0 +1,37 @@
+NODE timestamp_vs_string_date
+SQL >
+
+    SELECT timestamp_utc from sales_data_raw
+    where timestamp_utc = '2023-03-19'
+
+
+
+NODE timestamp_vs_date
+SQL >
+
+    SELECT timestamp_utc from sales_data_raw
+    where timestamp_utc = toDate('2023-03-19')
+
+
+
+NODE timestamp_vs_datetime
+SQL >
+
+    SELECT timestamp_utc from sales_data_raw
+    where timestamp_utc = toDateTime('2023-03-19')
+
+
+
+NODE date_vs_date
+SQL >
+
+    SELECT
+        timestamp_utc,
+        toDate(timestamp_utc),
+        toDate('2023-03-19'),
+        toDateTime('2023-03-19')
+    FROM sales_data_raw
+    WHERE toDate(timestamp_utc) = toDate('2023-03-19')
+
+
+

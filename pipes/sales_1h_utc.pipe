@@ -1,0 +1,19 @@
+NODE sales_1h_utc_0
+SQL >
+
+    SELECT
+        store,
+        toStartOfHour(timestamp_utc) AS period_utc,
+        sumSimpleState(sale_amount) AS sale_amount
+    FROM sales_data_raw
+    GROUP BY
+        store,
+        period_utc
+    ORDER BY period_utc ASC
+
+TYPE materialized
+DATASOURCE sales_1h_utc_mv
+ENGINE "AggregatingMergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(period_utc)"
+ENGINE_SORTING_KEY "store, period_utc"
+
