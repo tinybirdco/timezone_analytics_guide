@@ -19,7 +19,7 @@ SQL >
     FROM sales_data_raw
 
 TYPE materialized
-DATASOURCE sales_normalized_mv
+DATASOURCE sales_normalized_0_mv
 ENGINE "MergeTree"
 ENGINE_PARTITION_KEY "toYYYYMM(timestamp_normalized)"
 ENGINE_SORTING_KEY "timestamp_normalized, store, sale_amount"

@@ -1,4 +1,7 @@
 NODE timestamp_vs_string_date
+DESCRIPTION >
+    You can't compare a String to a DateTIme
+
 SQL >
 
     SELECT timestamp_utc from sales_data_raw
@@ -7,6 +10,9 @@ SQL >
 
 
 NODE timestamp_vs_date
+DESCRIPTION >
+    You also can't compare a Date to a DateTime
+
 SQL >
 
     SELECT timestamp_utc from sales_data_raw
@@ -15,6 +21,9 @@ SQL >
 
 
 NODE timestamp_vs_datetime
+DESCRIPTION >
+    Converting a Date to a DateTime gives a default moment of the day, which may not be in your dataset
+
 SQL >
 
     SELECT timestamp_utc from sales_data_raw
@@ -23,6 +32,9 @@ SQL >
 
 
 NODE date_vs_date
+DESCRIPTION >
+    By converting the DateTime to a Date we will get all events within that Calendar Day, and finally get our result.
+
 SQL >
 
     SELECT

@@ -14,6 +14,7 @@ SQL >
 NODE sales_15m_local_0
 DESCRIPTION >
     This Endpoint works well because you can only request a single Timezone to return the data in, and Clickhouse requires that a column is only one Timezone.
+    It uses the raw data instead of the equivalent MV to give you a single page view of the whole SQL function that you might use for your convenience.
 
 SQL >
 

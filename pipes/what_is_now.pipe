@@ -1,0 +1,32 @@
+NODE what_is_now_0
+SQL >
+
+    SELECT 
+    now(),
+    toDate(now()),
+    toDateTime(now()),
+    toDateTime64(now(),3),
+    now64(),
+    toDateTime64(now64(),3),
+    toUnixTimestamp64Milli(toDateTime64(now64(),3))
+
+
+
+NODE what_is_now_2
+SQL >
+
+    select 
+      toUnixTimestamp(parseDateTime64BestEffort('2021-03-19 19:15:00.478', 3)),
+      parseDateTimeBestEffortOrNull(''),
+    --  parseDateTime64BestEffort('time_string', 9, 'UTC') -- << This will throw an error
+      parseDateTime64BestEffortOrZero('x'), -- This gives a simple zero default value of the correct Type.
+      parseDateTime32BestEffort('1985-04-12T23:20:50.52Z')
+
+
+
+NODE what_is_now_3
+SQL >
+
+    Select today(), yesterday()
+
+

@@ -1,0 +1,20 @@
+NODE sales_15min_normalized_0
+SQL >
+
+    SELECT
+        store,
+        toStartOfFifteenMinutes(timestamp_normalized) AS period_normalized,
+        sumSimpleState(sale_amount) AS sale_amount,
+        countState() AS sale_count
+    FROM sales_normalized_0_mv
+    GROUP BY
+        store,
+        period_normalized
+    ORDER BY period_normalized ASC
+
+TYPE materialized
+DATASOURCE sales_15min_normalized_mv
+ENGINE "AggregatingMergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(period_normalized)"
+ENGINE_SORTING_KEY "store, period_normalized"
+

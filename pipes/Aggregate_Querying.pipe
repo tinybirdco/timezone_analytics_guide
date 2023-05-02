@@ -21,19 +21,6 @@ SQL >
 
 
 
-NODE Naively_querying_utc_with_an_MV
-DESCRIPTION >
-    Running the same query using the Materialized View, it's far more efficient.
-
-SQL >
-
-    %
-    select * from sales_15min_utc_mv
-    where store = 'London' AND toDate(period_utc) = {{Date(day, '2023-03-24')}}
-    ORDER BY period_utc ASC
-
-
-
 NODE Naively_querying_a_split_timezone
 DESCRIPTION >
     However if we naively query Auckland applying a calendar day to the UTC periods, we get two split blocks at the start and end of day.
@@ -42,8 +29,9 @@ DESCRIPTION >
 SQL >
 
     %
-    select * from sales_1h_utc_mv
-    where store = 'Auckland' AND toDate(period_utc) = {{Date(day, '2023-03-24')}}
+    select store, period_utc, sum(sale_amount) as sale_amount, CountMerge(sale_count) as sale_count from sales_15min_utc_mv
+    where store = 'Auckland' AND toDate(period_utc) = Date('2023-03-24')
+    group by store, period_utc
     ORDER BY period_utc ASC
 
 
@@ -54,10 +42,9 @@ DESCRIPTION >
 
 SQL >
 
-    %
     select store, store_open_time_utc, store_close_time_utc
       from store_hours_raw
-      where toDate(store_date) = {{Date(day, '2023-04-01')}} and store = {{String(store, 'Auckland')}}
+      where toDate(store_date) = Date('2023-04-01') and store = 'Auckland'
 
 
 
@@ -71,19 +58,108 @@ SQL >
 
     %
     select store, period_utc, sale_amount
-    from sales_1h_utc_mv
+    from sales_15min_utc_mv
     inner join store_hours_raw
-    on sales_1h_utc_mv.store = store_hours_raw.store
+    on sales_15min_utc_mv.store = store_hours_raw.store
     where
-      store = {{String(store, 'Auckland')}} AND 
-      sales_1h_utc_mv.period_utc >= store_hours_raw.store_open_time_utc AND
-      sales_1h_utc_mv.period_utc < store_hours_raw.store_close_time_utc AND
-      {{Date(day, '2023-04-01')}} = store_hours_raw.store_date
+      store = 'Auckland' AND 
+      sales_15min_utc_mv.period_utc >= store_hours_raw.store_open_time_utc AND
+      sales_15min_utc_mv.period_utc < store_hours_raw.store_close_time_utc AND
+      Date('2023-04-01') = store_hours_raw.store_date
     ORDER BY period_utc ASC
 
 
 
-NODE Querying_a_tricky_timezone_1
+NODE Incorrectly_querying_by_day_and_timezone
+DESCRIPTION >
+    Now see what happens if we attempt to naively query by the store_date using the local timestamp - we've got some extra sales!
+    This is because on this particular day in this timezone, it is DST change day.
+
+SQL >
+
+    %
+    SELECT
+        store,
+        toDate(toStartOfDay(parseDateTimeBestEffort(timestamp_local, 'Pacific/Chatham'))) AS store_date,
+        sum(sale_amount) AS sale_amount,
+        24 * 60 * 60 / 144 * 50 as expected_sale_amount
+    FROM sales_data_raw
+    where store = 'Chatham' AND store_date = {{Date(day, '2023-04-02')}}
+    GROUP BY
+        store,
+        store_date
+
+
+
+NODE Correctly_querying_by_day_and_timezone_1
+DESCRIPTION >
+    Note that we convert the UTC timestamp into the target timezone, then reduce it to a date in that timezone.
+    We have more transactions and sales on April 2nd because it has an extra hour in the DST change.
+    And we are generating a transaction every 144 seconds.
+
+SQL >
+
+    %
+    Select
+      store,
+      toDate(toDateTime(period_utc, {{String(timezone, 'Pacific/Chatham')}})) as period_local,
+      sum(sale_amount) as sale_amount,
+      countMerge(sale_count) as sale_count
+    from sales_15min_utc_mv
+    where
+      store = {{String(store, 'Chatham')}}
+      and period_local >= toDate({{String(start_day, '20230331')}})
+      and period_local <= toDate({{String(end_day, '20230403')}})
+    group by store, period_local
+    order by period_local asc
+
+
+
+NODE Correctly_querying_by_day_and_timezone_2
+DESCRIPTION >
+    And we can check we are correct by parsing the original local timezone timestamp for those days.
+
+SQL >
+
+    select 
+      store,
+      toDate(substring(timestamp_local, 1, 10)) as period_local,
+      sum(sale_amount) as sale_amount,
+      count() as sale_count
+    from sales_data_raw
+    where 
+      store = 'Chatham'
+      and toDate(substring(timestamp_local, 1, 10)) >= toDate('20230331')
+      and toDate(substring(timestamp_local, 1, 10)) <= toDate('20230403')
+    group by store, period_local
+    order by period_local asc
+
+
+
+NODE Bonus_using_the_local_store_day_by_lookup_table
+DESCRIPTION >
+    If we use the recorded store day instead, which doesn't close out until after the DST change on the 1st of April,
+    instead we see the extra transactions within that store day.
+
+SQL >
+
+    select 
+      store,
+      store_date,
+      sum(sale_amount),
+      countMerge(sale_count) as sale_count 
+    from sales_15min_utc_mv
+    join store_hours_raw using store
+    where period_utc >= store_hours_raw.store_open_time_utc
+    and period_utc < store_hours_raw.store_close_time_utc
+    and store_date >= toDate('2023-03-31') and store_date <= toDate('2023-04-03')
+    and store = 'Chatham'
+    group by store, store_date
+    order by store_date asc
+
+
+
+NODE Querying_with_a_lookup_table_1
 DESCRIPTION >
     The Chatham islands are offset by 15mins, and our store is open 24hrs a day - how do we get exactly the right periods?
     Fortunately, all timezones are in 15min increments, so that is our smallest convenient aggregation to sustain.
@@ -97,74 +173,23 @@ SQL >
 
 
 
-NODE Querying_a_tricky_timezone_2
+NODE Querying_with_a_lookup_table_2
 DESCRIPTION >
-    Note that our processed data goes up - we are querying in 15min periods instead of 1hr.
-    However we are still processing less than half of the raw table query far less than the raw table query.
+    By preselecting the store info for the day above, we save a little processing time here
 
 SQL >
 
     %
-    with store_info as (select * from Querying_a_tricky_timezone_1)
+    with store_info as (select * from Querying_with_a_lookup_table_1)
     select store, store_date, period_utc, sale_amount
     from sales_15min_utc_mv as sd
     inner join store_info
     on sd.store = store_info.store
     where
-      store = {{String(store, 'Chatham')}} AND 
+      store = 'Chatham' AND 
       sd.period_utc >= store_info.store_open_time_utc AND
       sd.period_utc < store_info.store_close_time_utc AND
-      store_info.store_date = {{Date(day, '2023-04-01')}}
+      store_info.store_date = Date('2023-04-01')
     ORDER BY period_utc ASC
-
-
-
-NODE Querying_a_tricky_timezone_3
-DESCRIPTION >
-    In our sample data, each elapsed day at the Chatham has exactly 600 transactions for 50 each.
-
-SQL >
-
-    SELECT 
-      store,
-      store_date,
-      sum(sale_amount) as sale_amount,
-      600 * 50 as expected_sale_amount
-    FROM Querying_a_tricky_timezone_2
-    group by store, store_date
-
-
-
-NODE Querying_a_tricky_timezone_4
-DESCRIPTION >
-    Now see what happens if we attempt to naively query by the store_date using the local timestamp - we're missing some data!
-
-SQL >
-
-    %
-    SELECT
-        store,
-        toDate(toStartOfDay(parseDateTimeBestEffort(timestamp_local, 'Pacific/Chatham'))) AS store_date,
-        sum(sale_amount) AS sale_amount,
-        600 * 50 as expected_sale_amount
-    FROM sales_data_raw
-    where store = 'Chatham' AND store_date = {{Date(day, '2023-04-01')}}
-    GROUP BY
-        store,
-        store_date
-
-
-
-NODE Aggregate_Querying_9
-DESCRIPTION >
-    Or we can just grab it from the Materialized View created for that very purpose.
-
-SQL >
-
-    %
-    select store, store_date, sale_amount
-    from sales_1d_local_mv
-    where store = {{String(store, 'Chatham')}}
-    and store_date = {{Date(day, '2023-04-01')}}
 
 

@@ -1,0 +1,45 @@
+NODE Date_and_Time_Types
+SQL >
+
+    select
+      toDate('1970-01-01'),
+      toDate32('1900-01-01'),
+      toDateTime('2106-02-07 06:28:15'),
+      toDateTime64('2106-02-07 06:28:15', 9, 'UTC')
+
+
+
+NODE Date_From_a_String
+SQL >
+
+    SELECT
+        '2023-04-05' AS date,
+        toDate(date),
+        toDate32(date),
+        DATE(date),
+        CAST(date, 'Date')
+
+
+
+
+NODE Date_vs_Date32
+DESCRIPTION >
+    Note that using a Date out of range of the Type returns the boundary.
+
+SQL >
+
+    select toDate('1903-04-15'), toDate32('1903-04-16')
+
+
+
+NODE Parsing_into_DateTime
+SQL >
+
+    select 
+      toUnixTimestamp(parseDateTime64BestEffort('2021-03-19 19:15:00.478', 3)),
+      parseDateTimeBestEffortOrNull(''),
+    --  parseDateTime64BestEffort('time_string', 9, 'UTC') -- << This will throw an error
+      parseDateTime64BestEffortOrZero('x'), -- This gives a simple zero default value of the correct Type.
+      parseDateTime32BestEffort('1985-04-12T23:20:50.52Z')
+
+

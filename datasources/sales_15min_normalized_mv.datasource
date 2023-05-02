@@ -1,0 +1,11 @@
+# Data Source created from Pipe 'sales_15min_normalized'
+
+SCHEMA >
+    `store` String,
+    `period_normalized` DateTime,
+    `sale_amount` SimpleAggregateFunction(sum, Int64),
+    `sale_count` AggregateFunction(count)
+
+ENGINE "AggregatingMergeTree"
+ENGINE_PARTITION_KEY "toYYYYMM(period_normalized)"
+ENGINE_SORTING_KEY "store, period_normalized"

@@ -2,7 +2,8 @@
 SCHEMA >
     `store` String `json:$.store`,
     `store_close_time_local` String `json:$.store_close_time_local`,
-    `store_close_time_utc` DateTime64(3) `json:$.store_close_time_utc`,
+    `store_close_time_utc` DateTime `json:$.store_close_time_utc`,
+    `store_close_timezone_offset` Int32 `json:$.store_close_timezone_offset`,
     `store_date` Date `json:$.store_date`,
     `store_open_seconds_elapsed` Int32 `json:$.store_open_seconds_elapsed`,
     `store_open_time_local` String `json:$.store_open_time_local`,
